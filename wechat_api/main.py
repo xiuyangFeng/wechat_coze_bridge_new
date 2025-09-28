@@ -148,40 +148,41 @@ def sync_references_to_hot_kb(soup):
 
 # --- 事件处理主路由 (V4.0 核心重构) ---
 @app.route('/', methods=['POST'])
+@app.route('/', methods=['POST'])
 def handle_event():
     try:
-        # 1. 检查请求体是否为空
         if not request.data:
             logging.info("接收到一个空的POST请求，已忽略。")
             return "OK", 200
 
-        # 2. 解析XML
         root = ET.fromstring(request.data)
-
-        # 3. 【关键修改】防御性地获取节点和文本
         msg_type_node = root.find('MsgType')
         event_node = root.find('Event')
 
-        # 4. 如果连最基本的MsgType都没有，直接忽略
         if msg_type_node is None:
-            logging.warning(f"接收到一个缺少 'MsgType' 节点的XML，已忽略。内容: {request.data[:500]}")
+            logging.warning(f"接收到一个缺少 'MsgType' 节点的XML，已忽略。")
             return "OK", 200
         
         msg_type = msg_type_node.text
         
-        # 5. 确保是事件类型，并且Event节点存在
         if msg_type == 'event' and event_node is not None:
             event = event_node.text
-            # 6. 我们只关心 PUBLISHJOBFINISH 事件
-            if event == 'PUBLISHJOBFINISH':
-                logging.info("接收到微信 'PUBLISHJOBFINISH' 事件。")
+            
+            # <<< --- 关键修改在这里 --- >>>
+            if event == 'MASSSENDJOBFINISH':
+                logging.info("接收到微信 'MASSSENDJOBFINISH' 事件。")
                 
-                article_items = root.findall('.//ArticleResult/item')
+                # MASSSENDJOBFINISH 的XML结构可能不同，我们需要更健壮的查找
+                # 我们不再假设有 ArticleResult, 而是直接查找 item
+                article_items = root.findall('.//item')
                 if not article_items:
-                    logging.warning("在 'PUBLISHJOBFINISH' 事件中未找到任何文章项目。")
+                    # 如果没有item, 我们尝试另一种可能的路径
+                    article_items = root.findall('.//ArticleResult/item')
+                
+                if not article_items:
+                    logging.warning("在 'MASSSENDJOBFINISH' 事件中未找到任何文章项目。")
                 
                 for item in article_items:
-                    # 也对文章节点进行防御性检查
                     article_url_node = item.find('ArticleUrl')
                     article_title_node = item.find('Title')
                     
@@ -197,18 +198,15 @@ def handle_event():
                         sync_article_to_hot_kb(article_title, article_url, soup)
                         sync_references_to_hot_kb(soup)
             else:
-                # 忽略其他所有类型的事件
-                logging.info(f"接收到一个非 'PUBLISHJOBFINISH' 的事件，类型: '{event}'，已忽略。")
+                logging.info(f"接收到一个非 'MASSSENDJOBFINISH' 的事件，类型: '{event}'，已忽略。")
         else:
-            # 忽略所有非事件类型的消息
             logging.info(f"接收到一个非事件类型的消息，类型: '{msg_type}'，已忽略。")
 
     except ET.ParseError as e:
         logging.error(f"处理微信POST请求时XML解析失败: {e}. 请求体: {request.data[:500]}")
     except Exception as e:
-        logging.error(f"处理微信POST请求时发生未知异常: {e}", exc_info=True) # exc_info=True会打印更详细的错误堆栈
+        logging.error(f"处理微信POST请求时发生未知异常: {e}", exc_info=True)
 
-    # 无论如何，都告诉微信我们处理完了
     return "OK", 200
 
 # --- 本地调试入口 (可选) ---
