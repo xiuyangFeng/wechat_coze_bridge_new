@@ -149,55 +149,66 @@ def sync_references_to_hot_kb(soup):
 # --- 事件处理主路由 (V4.0 核心重构) ---
 @app.route('/', methods=['POST'])
 def handle_event():
-    """
-    微信云托管事件接收接口。
-    该接口只处理POST请求，无需进行签名验证。
-    """
     try:
-        # 1. 直接从 request.data 获取原始的XML请求体
-        xml_data = request.data
-        
+        # 1. 检查请求体是否为空
+        if not request.data:
+            logging.info("接收到一个空的POST请求，已忽略。")
+            return "OK", 200
+
         # 2. 解析XML
-        root = ET.fromstring(xml_data)
-        msg_type = root.find('MsgType').text
+        root = ET.fromstring(request.data)
+
+        # 3. 【关键修改】防御性地获取节点和文本
+        msg_type_node = root.find('MsgType')
         event_node = root.find('Event')
 
-        # 3. 判断是否为公众号文章发布完成事件
-        if event_node is not None and msg_type == 'event' and event_node.text == 'PUBLISHJOBFINISH':
-            logging.info("接收到微信 'PUBLISHJOBFINISH' 事件。")
-            
-            # 4. 遍历所有发布的文章
-            article_items = root.findall('.//ArticleResult/item')
-            for item in article_items:
-                article_url_node = item.find('ArticleUrl')
-                article_title_node = item.find('Title')
+        # 4. 如果连最基本的MsgType都没有，直接忽略
+        if msg_type_node is None:
+            logging.warning(f"接收到一个缺少 'MsgType' 节点的XML，已忽略。内容: {request.data[:500]}")
+            return "OK", 200
+        
+        msg_type = msg_type_node.text
+        
+        # 5. 确保是事件类型，并且Event节点存在
+        if msg_type == 'event' and event_node is not None:
+            event = event_node.text
+            # 6. 我们只关心 PUBLISHJOBFINISH 事件
+            if event == 'PUBLISHJOBFINISH':
+                logging.info("接收到微信 'PUBLISHJOBFINISH' 事件。")
                 
-                # 确保文章URL存在
-                if article_url_node is None or not article_url_node.text:
-                    logging.warning("事件中的一篇文章缺少 'ArticleUrl'，已跳过。")
-                    continue
+                article_items = root.findall('.//ArticleResult/item')
+                if not article_items:
+                    logging.warning("在 'PUBLISHJOBFINISH' 事件中未找到任何文章项目。")
                 
-                article_url = article_url_node.text
-                article_title = article_title_node.text if article_title_node is not None else "无标题"
-                
-                logging.info(f"正在处理文章: '{article_title}' ({article_url})")
-                
-                # 5. 抓取文章HTML内容
-                response = requests.get(article_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'lxml')
-                
-                # 6. 执行双通道同步逻辑
-                sync_article_to_hot_kb(article_title, article_url, soup)
-                sync_references_to_hot_kb(soup)
-                
+                for item in article_items:
+                    # 也对文章节点进行防御性检查
+                    article_url_node = item.find('ArticleUrl')
+                    article_title_node = item.find('Title')
+                    
+                    if article_url_node is not None and article_url_node.text:
+                        article_url = article_url_node.text
+                        article_title = article_title_node.text if article_title_node is not None else "无标题"
+                        
+                        logging.info(f"正在处理文章: '{article_title}'")
+                        response = requests.get(article_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
+                        response.raise_for_status()
+                        soup = BeautifulSoup(response.text, 'lxml')
+                        
+                        sync_article_to_hot_kb(article_title, article_url, soup)
+                        sync_references_to_hot_kb(soup)
+            else:
+                # 忽略其他所有类型的事件
+                logging.info(f"接收到一个非 'PUBLISHJOBFINISH' 的事件，类型: '{event}'，已忽略。")
+        else:
+            # 忽略所有非事件类型的消息
+            logging.info(f"接收到一个非事件类型的消息，类型: '{msg_type}'，已忽略。")
+
     except ET.ParseError as e:
         logging.error(f"处理微信POST请求时XML解析失败: {e}. 请求体: {request.data[:500]}")
     except Exception as e:
-        logging.error(f"处理微信POST请求时发生未知异常: {e}")
-    
-    # 7. 无论处理成功与否，都向微信云托管返回一个成功的响应
-    #    这可以防止微信服务因未收到及时响应而重复推送事件。
+        logging.error(f"处理微信POST请求时发生未知异常: {e}", exc_info=True) # exc_info=True会打印更详细的错误堆栈
+
+    # 无论如何，都告诉微信我们处理完了
     return "OK", 200
 
 # --- 本地调试入口 (可选) ---
