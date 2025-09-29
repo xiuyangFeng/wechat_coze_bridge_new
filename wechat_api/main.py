@@ -148,7 +148,6 @@ def sync_references_to_hot_kb(soup):
 
 # --- 事件处理主路由 (V4.0 核心重构) ---
 @app.route('/', methods=['POST'])
-@app.route('/', methods=['POST'])
 def handle_event():
     try:
         if not request.data:
