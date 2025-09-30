@@ -1,4 +1,3 @@
-# main.py - 微信云托管部署版本 V5.1 (日志增强版)
 import os
 import xml.etree.ElementTree as ET
 import requests
@@ -6,7 +5,7 @@ import re
 from flask import Flask, request
 from bs4 import BeautifulSoup
 import logging
-import json # <<< 新增import，用于格式化打印JSON
+import json
 import base64
 
 # --- 日志配置 ---
@@ -85,14 +84,35 @@ def create_coze_doc(kb_id, doc_name, content):
 
 # --- 数据提取模块 (可独立测试) ---
 def extract_article_snippet(soup):
-    """从文章soup中提取摘要。"""
+    """
+    从文章soup中提取摘要。
+    优先尝试从 'div#js_content' 中提取前150个字符。
+    如果找不到该div，则回退到提取整个HTML body的前100个字符作为摘要。
+    """
+    # 优先策略：寻找核心内容容器 'div#js_content'
     content_div = soup.find('div', id='js_content')
-    if not content_div:
-        logging.warning("在文章HTML中未找到 'div#js_content'，无法提取摘要。")
-        return None
     
-    plain_text = content_div.get_text(strip=True)
-    snippet = plain_text[:150]
+    if content_div:
+        logging.info("在 'div#js_content' 中找到内容，提取前150字符作为摘要。")
+        plain_text = content_div.get_text(strip=True)
+        snippet = plain_text[:150]
+        return snippet
+
+    # 回退策略：如果找不到特定容器，则从整个body提取
+    logging.warning("在文章HTML中未找到 'div#js_content'，将回退到提取全文的前100个字符作为摘要。")
+    
+    # 尝试从<body>提取，这比从整个soup提取更精确，可以避免<head>中的脚本和样式内容
+    # 如果连<body>都没有，再从整个soup对象提取
+    if soup.body:
+        plain_text = soup.body.get_text(strip=True)
+    else:
+        plain_text = soup.get_text(strip=True)
+    
+    if not plain_text:
+        logging.error("无法从HTML中提取任何有效文本内容，无法生成摘要。")
+        return None # 如果全文都没有文本，则返回None
+
+    snippet = plain_text[:100]
     return snippet
 
 def extract_references(soup):
