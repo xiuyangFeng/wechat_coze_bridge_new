@@ -86,7 +86,7 @@ def extract_article_snippet(soup):
 
 # coze_uploader.py
 
-def extract_references(soup):
+def extract_references(soup, article_title="文献原文链接"): # 增加 article_title 参数，并给一个备用默认值
     """
     从文章soup中提取所有 s.caixuan.cc 格式的链接。
     新版：能同时处理<a>标签的href链接和纯文本链接。
@@ -94,7 +94,6 @@ def extract_references(soup):
     references = []
     html_string = str(soup)
     
-    # 步骤1: 像以前一样，用正则表达式找出所有符合格式的链接字符串
     ref_links = sorted(list(set(re.findall(r'https://s\.caixuan\.cc/[A-Za-z0-9]+', html_string))))
     
     if not ref_links:
@@ -104,25 +103,22 @@ def extract_references(soup):
     logging.info(f"找到了 {len(ref_links)} 个 s.caixuan.cc 格式的链接字符串，正在尝试解析...")
     
     for ref_link in ref_links:
-        ref_title = "文献原文链接" # 先设置一个默认标题
+        ref_title = article_title # <-- 关键修改：使用传入的文章标题作为默认标题
         
-        # 步骤2: 优先尝试把它当作一个<a>标签来查找 (处理旧情况)
         a_tag = soup.find('a', href=ref_link)
         
         if a_tag:
-            # 如果找到了<a>标签，就尝试提取更精确的标题
-            logging.info(f"链接 '{ref_link[:30]}...' 是一个<a>标签，尝试提取标题。")
+            logging.info(f"链接 '{ref_link[:30]}...' 是一个<a>标签，尝试提取更精确的标题。")
             parent = a_tag.find_parent(['p', 'li', 'div'])
             if parent:
                 raw_title = parent.get_text(strip=True)
-                # 清理常见的引导词
-                ref_title = re.sub(r'^(来源文章|延伸阅读|相关链接)[:：\s]*', '', raw_title).strip()
+                cleaned_title = re.sub(r'^(来源文章|延伸阅读|相关链接)[:：\s]*', '', raw_title).strip()
+                if cleaned_title: # 确保清理后的标题不为空
+                    ref_title = cleaned_title
             elif a_tag.get_text(strip=True):
                 ref_title = a_tag.get_text(strip=True)
         else:
-            # 如果找不到<a>标签，就说明它是一个纯文本链接 (处理新情况)
-            logging.info(f"链接 '{ref_link[:30]}...' 是纯文本，使用默认标题。")
-            # 在这里我们可以保持使用默认标题 "文献原文链接"
+            logging.info(f"链接 '{ref_link[:30]}...' 是纯文本，使用文章标题作为默认标题。")
             pass 
         
         references.append({"title": ref_title, "link": ref_link})
@@ -140,9 +136,9 @@ def sync_article_to_hot_kb(article_title, article_url, soup):
     content_for_kb = f"---\n文章URL: {article_url}\n文章标题: {article_title}\n文章摘要: {snippet}\n---"
     create_coze_doc(KB_ID_ARTICLES_HOT, article_title, content_for_kb)
 
-def sync_references_to_hot_kb(soup):
+def sync_references_to_hot_kb(soup,article_title):
     logging.info("--- 开始同步文章中的参考文献 ---")
-    references = extract_references(soup)
+    references = extract_references(soup,article_title)
     
     if not references:
         logging.info("未找到参考文献。")

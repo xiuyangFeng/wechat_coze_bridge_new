@@ -101,7 +101,7 @@ def process_and_upload(json_data: dict):
                 sync_article_to_hot_kb(title, url, soup)
                 
                 # 2. 同步参考文献到Coze
-                sync_references_to_hot_kb(soup)
+                sync_references_to_hot_kb(soup,title)
                 
                 # 步骤3: 处理成功后，记录SN以备将来去重
                 with sns_lock:
