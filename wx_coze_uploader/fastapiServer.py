@@ -15,7 +15,7 @@ load_dotenv()
 
 # --- 从我们自己的模块中导入函数 ---
 from wx_downloader import download_html, get_current_time_string, save_file
-from coze_uploader import sync_article_to_hot_kb, sync_references_to_hot_kb
+from coze_uploader import sync_article_to_hot_kb, sync_references_to_hot_kb, sync_full_article_to_kb
 
 
 BIZ_WHITELIST = {"医工交叉园地"} # 白名单公众号名单
@@ -102,6 +102,9 @@ def process_and_upload(json_data: dict):
                 
                 # 2. 同步参考文献到Coze
                 sync_references_to_hot_kb(soup,title)
+                
+                # 3. 同步文章全文到Coze (新增)
+                sync_full_article_to_kb(title, url, soup)
                 
                 # 步骤3: 处理成功后，记录SN以备将来去重
                 with sns_lock:

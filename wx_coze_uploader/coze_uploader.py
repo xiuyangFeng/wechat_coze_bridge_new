@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 COZE_API_KEY = os.getenv('COZE_API_KEY')
 KB_ID_ARTICLES_HOT = os.getenv('KB_ID_ARTICLES_HOT')
 KB_ID_REFERENCES_HOT = os.getenv('KB_ID_REFERENCES_HOT')
+KB_ID_ARTICLES_FULL = os.getenv('KB_ID_ARTICLES_FULL')  # 新增：文章全文知识库ID
 
 if not all([COZE_API_KEY, KB_ID_ARTICLES_HOT, KB_ID_REFERENCES_HOT]):
     logging.warning("警告：一个或多个环境变量 (COZE_API_KEY, KB_ID_ARTICLES_HOT, KB_ID_REFERENCES_HOT) 未设置！")
@@ -148,3 +149,46 @@ def sync_references_to_hot_kb(soup,article_title):
     for ref in references:
         content_for_kb = f"---\n文献标题: {ref['title']}\n文献链接: {ref['link']}\n---"
         create_coze_doc(KB_ID_REFERENCES_HOT, ref['title'], content_for_kb)
+
+def sync_full_article_to_kb(article_title, article_url, soup):
+    """
+    提取文章全文并上传到一个专门的知识库。
+    
+    Args:
+        article_title (str): 文章标题
+        article_url (str): 文章URL
+        soup (BeautifulSoup): 解析后的HTML内容
+    """
+    logging.info("--- 开始同步文章全文 ---")
+    
+    # 检查是否配置了全文知识库ID
+    if not KB_ID_ARTICLES_FULL:
+        logging.warning("未配置全文知识库ID (KB_ID_ARTICLES_FULL)，已跳过上传全文。")
+        return
+
+    try:
+        # 优先从 #js_content div 中提取正文，这是微信文章最核心的内容区
+        content_div = soup.find('div', id='js_content')
+        
+        if content_div:
+            # 使用换行符连接，保留段落感
+            plain_text = content_div.get_text("\n", strip=True)
+            logging.info(f"成功提取全文，长度: {len(plain_text)} 字符。")
+        else:
+            logging.warning("在文章HTML中未找到 'div#js_content'，将回退到提取整个body的文本。")
+            if soup.body:
+                plain_text = soup.body.get_text("\n", strip=True)
+            else:
+                logging.error("无法提取任何有效文本内容，中止上传全文。")
+                return
+
+        # 准备上传到Coze的内容，包含元数据和正文
+        content_for_kb = f"---\n文章URL: {article_url}\n文章标题: {article_title}\n---\n\n{plain_text}"
+        
+        # 调用通用的上传函数
+        create_coze_doc(KB_ID_ARTICLES_FULL, article_title, content_for_kb)
+        
+    except Exception as e:
+        logging.error(f"同步文章全文时发生未知错误: {e}", exc_info=True)
+    finally:
+        logging.info("--- 文章全文同步模块执行完毕 ---")
